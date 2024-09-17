@@ -1,0 +1,124 @@
+import requests
+import os
+from bs4 import BeautifulSoup
+import mysql.connector
+
+class CpplusFirmwares:
+    def __init__(self, url):
+        self.url = url
+
+    def create_folder(self, folder_name):
+        if not os.path.exists(folder_name):
+            os.makedirs(folder_name)
+            print(f"Folder created successfully: {folder_name}")
+
+    def download_firmware(self, download_url, model_folder):
+    
+        try:
+            response = requests.get(download_url)
+            if response.status_code == 200:
+                filename = download_url.split('/')[-1]
+                file_path = os.path.join(model_folder, filename)
+                with open(file_path, 'wb') as f:
+                    f.write(response.content)
+                print(f"Firmware downloaded successfully: {filename}")
+                return filename
+            else:
+                print(f"Failed to download firmware.")
+                return None
+        except Exception as e:
+            print(f"Error downloading firmware: {e}")
+            return None
+
+    def scrape_and_download(self):
+        r = requests.get(self.url)
+        soup = BeautifulSoup(r.text, 'html.parser')
+
+        table = soup.find_all("table", class_="table table-bordered m-b-0")
+
+        table = table[1]
+
+        db_config = {
+            'host': 'localhost',
+            'user': 'root',
+            'password': 'Sanushika@2930',
+            'database': 'company_data'
+        }
+
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+
+        cursor.execute("SHOW TABLES LIKE 'cpplus1'")
+        table_exists = cursor.fetchone()
+
+        if not table_exists:
+            cursor.execute('''
+                CREATE TABLE cpplus1 (
+                    Model_No VARCHAR(50),
+                    Version VARCHAR(20),  
+                    Download VARCHAR(255), 
+                    Status VARCHAR(10)
+                )
+            ''')
+            print("Table 'cpplus1' created successfully")
+        else:
+            print("Table 'cpplus1' already exists in the database")
+
+        self.create_folder("D:\\Redinent\\CPPLUS1")
+
+        for row in table.find_all("tr")[1:]:
+            columns = row.find_all(["th", "td"])
+            row_values = [column.text.strip() for column in columns]
+
+            model_no = row_values[0]
+            version = row_values[1]
+            download_url = columns[4].find("a").get("href") if columns[4].find("a") else None
+
+            if download_url:
+                download_url = 'https://www.cpplusworld.com' + download_url
+
+            model_folder = os.path.join("D:\\Redinent\\CPPLUS1", model_no)
+            self.create_folder(model_folder)
+
+            if download_url:
+                filename = self.download_firmware(download_url, model_folder)
+                file_path = None
+                if filename:
+                    print(f"Download firmware for {model_no}: {filename}")
+                    file_path = os.path.join(model_folder, filename)
+
+                model_url = "https://www.cpplusworld.com/" + model_no
+                status = self.get_model_status(model_url)
+
+            cursor.execute('''
+                INSERT INTO cpplus1 (Model_No, Version, Download, Status)
+                VALUES (%s, %s, %s, %s)
+            ''', (model_no, version, file_path, status))
+            conn.commit()
+        conn.close()
+
+    def get_model_status(self, model_url):
+        try:
+            r = requests.get(model_url)
+            soup = BeautifulSoup(r.text, 'html.parser')
+            status_tag = soup.find("span", class_="new-eol-tag")
+            if status_tag:
+                return "EOL"
+            else:
+                return "Active"
+        except Exception as e:
+            print(f"Error getting model status: {e}")
+            return "Unknown"
+
+url = "https://www.cpplusworld.com/firmware"
+fw_downloader = CpplusFirmwares(url)
+fw_downloader.scrape_and_download()
+
+
+
+
+
+
+
+
+
